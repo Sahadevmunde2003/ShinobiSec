@@ -1,0 +1,19 @@
+SHINOBISEC DEMO TEST DATA
+
+Chidori: 127.0.0.1
+Byakugan: 192.168.1.0/24
+Rasengan: https://example.com
+
+Sharingan:
+Failed password for root from 203.0.113.50
+Failed password for admin from 203.0.113.50
+Accepted password for analyst from 192.168.1.20
+sudo: analyst : COMMAND=/usr/bin/systemctl status nginx
+
+Amaterasu / Shadow Clone:
+Failed password for root from 203.0.113.50
+powershell -enc suspiciouscommand
+mimikatz credential dumping
+SHA256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+https://suspicious-example.test/login
+privilege escalation granted
