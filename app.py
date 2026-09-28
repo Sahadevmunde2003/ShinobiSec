@@ -4,8 +4,12 @@ from flask import Flask, render_template, request, jsonify
 from collections import defaultdict
 import ipaddress, re, shutil, subprocess
 from datetime import datetime
+import json
+import os
+import sqlite3
 
 app = Flask(__name__)
+app.config.from_mapping(DATABASE=os.path.join(app.instance_path, "assessments.sqlite3"))
 
 JUTSU = [
  {"id":"chidori","name":"Chidori","style":"Lightning Release","icon":"⚡","description":"Network reconnaissance and port analysis.","phase":"PHASE 2","status":"ONLINE"},
@@ -28,6 +32,41 @@ def validate_ip(target):
     try: return str(ipaddress.ip_address(target.strip()))
     except ValueError: return None
 
+def get_db():
+    """Return an initialized SQLite connection for assessment metadata."""
+    database = app.config["DATABASE"]
+    directory = os.path.dirname(database)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    connection = sqlite3.connect(database)
+    connection.row_factory = sqlite3.Row
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS assessment_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module TEXT NOT NULL,
+            target TEXT NOT NULL DEFAULT '',
+            finding_count INTEGER NOT NULL DEFAULT 0,
+            severity_counts TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        )
+    """)
+    return connection
+
+def record_assessment(module, target="", finding_count=0, severity_counts=None):
+    """Persist minimal metadata; raw analysis content and detailed results are not stored."""
+    try:
+        with get_db() as connection:
+            connection.execute(
+                "INSERT INTO assessment_history (module, target, finding_count, severity_counts, created_at) VALUES (?, ?, ?, ?, ?)",
+                (module, str(target)[:255], int(finding_count), json.dumps(severity_counts or {}), datetime.now().isoformat(timespec="seconds")),
+            )
+    except (OSError, sqlite3.Error):
+        app.logger.exception("Unable to record assessment history")
+
+def assessment_response(module, assessment_target="", finding_count=0, severity_counts=None, **payload):
+    record_assessment(module, assessment_target, finding_count, severity_counts)
+    return jsonify(ok=True, **payload)
+
 @app.get("/")
 def index(): return render_template("index.html", jutsu=JUTSU)
 
@@ -44,7 +83,7 @@ def chidori():
     for line in p.stdout.splitlines():
         m=rx.match(line.strip())
         if m: ports.append({"port":m.group(1),"protocol":m.group(2),"state":m.group(3),"service":m.group(4)})
-    return jsonify(ok=True,target=target,host_up=bool(re.search(r"\bHost is up\b",p.stdout,re.I)),ports=ports,raw=p.stdout)
+    return assessment_response("Chidori", target, len(ports), {}, target=target,host_up=bool(re.search(r"\bHost is up\b",p.stdout,re.I)),ports=ports,raw=p.stdout)
 
 def analyze_logs(text):
     findings=[]; failed=defaultdict(int)
@@ -71,7 +110,7 @@ def sharingan():
     if not isinstance(text,str) or not text.strip(): return jsonify(ok=False,error="Paste a log sample first."),400
     if len(text)>1_000_000: return jsonify(ok=False,error="Maximum log size is 1 MB."),413
     counts,findings,top=analyze_logs(text)
-    return jsonify(ok=True,analyzed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),counts=counts,findings=findings,top_ips=top)
+    return assessment_response("Sharingan", "Security log input", counts["total_events"], counts, analyzed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),counts=counts,findings=findings,top_ips=top)
 
 @app.post("/api/byakugan")
 def byakugan():
@@ -101,7 +140,7 @@ def byakugan():
         except ValueError: continue
         if h["ip"] not in seen: seen.add(h["ip"]); unique.append(h)
     if p.returncode!=0: return jsonify(ok=False,error=p.stderr.strip() or "Nmap returned an error.",raw=raw,hosts=unique),500
-    return jsonify(ok=True,target=str(network),hosts=unique,count=len(unique),raw=raw)
+    return assessment_response("Byakugan", str(network), len(unique), {}, target=str(network),hosts=unique,count=len(unique),raw=raw)
 
 @app.post("/api/amaterasu")
 def amaterasu():
@@ -126,7 +165,7 @@ def amaterasu():
         if k not in seen: seen.add(k); unique.append(d)
     order={"HIGH":0,"MEDIUM":1,"LOW":2}; unique.sort(key=lambda x:(order.get(x["severity"],9),x["type"],x["indicator"]))
     counts={k:sum(x["severity"]==k for x in unique) for k in ["HIGH","MEDIUM","LOW"]}
-    return jsonify(ok=True,count=len(unique),counts=counts,detections=unique,note="Local heuristic detection only. Validate important findings with trusted threat-intelligence sources.")
+    return assessment_response("Amaterasu", "Defensive IOC input", len(unique), counts, count=len(unique),counts=counts,detections=unique,note="Local heuristic detection only. Validate important findings with trusted threat-intelligence sources.")
 
 @app.post("/api/rasengan")
 def rasengan():
@@ -154,7 +193,8 @@ def rasengan():
         if "httponly" not in cookie.lower(): finding("LOW","Cookie without HttpOnly flag","A Set-Cookie value appears not to include HttpOnly.")
         break
     finding("INFO","HTTPS enabled","Target was accessed over HTTPS.") if parsed.scheme.lower()=="https" else finding("MEDIUM","Plain HTTP","Target was accessed over HTTP rather than HTTPS.")
-    return jsonify(ok=True,target=target,final_url=r.url,status=r.status_code,findings=findings,headers={k:v for k,v in r.headers.items()},note="Rasengan performs non-destructive HTTP configuration checks only. Findings are indicators for review, not proof of exploitability.")
+    severity_counts = {severity: sum(finding["severity"] == severity for finding in findings) for severity in ["HIGH", "MEDIUM", "LOW", "INFO"]}
+    return assessment_response("Rasengan", target, len(findings), severity_counts, target=target,final_url=r.url,status=r.status_code,findings=findings,headers={k:v for k,v in r.headers.items()},note="Rasengan performs non-destructive HTTP configuration checks only. Findings are indicators for review, not proof of exploitability.")
 
 @app.post("/api/shadow-clone")
 def shadow_clone():
@@ -183,7 +223,30 @@ def shadow_clone():
         hits=[name for name,p in rules if re.search(p,text)]
         return {"module":"Threat behavior","status":"completed","findings":len(hits),"details":("Matched: "+", ".join(hits)) if hits else "No configured suspicious-behavior patterns matched."}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool: results=list(pool.map(lambda f:f(),[ioc_check,auth_check,web_check,threat_check]))
-    return jsonify(ok=True,clones=len(results),results=results,note="Shadow Clone runs independent local defensive checks in parallel. Findings are indicators for review, not proof of compromise.")
+    finding_count = sum(result["findings"] for result in results)
+    return assessment_response("Shadow Clone", "Defensive analysis input", finding_count, {}, clones=len(results),results=results,note="Shadow Clone runs independent local defensive checks in parallel. Findings are indicators for review, not proof of compromise.")
+
+@app.get("/api/history")
+def history():
+    try:
+        limit = int(request.args.get("limit", 10))
+    except ValueError:
+        return jsonify(ok=False, error="History limit must be a number."), 400
+    limit = min(max(limit, 1), 100)
+    try:
+        with get_db() as connection:
+            rows = connection.execute(
+                "SELECT id, module, target, finding_count, severity_counts, created_at FROM assessment_history ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+    except (OSError, sqlite3.Error):
+        app.logger.exception("Unable to load assessment history")
+        return jsonify(ok=False, error="Assessment history is temporarily unavailable."), 503
+    assessments = []
+    for row in rows:
+        item = dict(row)
+        item["severity_counts"] = json.loads(item["severity_counts"])
+        assessments.append(item)
+    return jsonify(ok=True, assessments=assessments)
 
 @app.get("/api/demo-data")
 def demo_data():

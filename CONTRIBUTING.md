@@ -6,8 +6,8 @@ Thanks for contributing.
 
 1. Fork or clone the repository.
 2. Create a focused branch for your change.
-3. Install dependencies with `pip install -r requirements.txt`.
-4. Test the Flask application locally.
+3. Install development dependencies with `pip install -r requirements-dev.txt`.
+4. Run `pytest` and test the Flask application locally.
 5. Keep security checks authorized, defensive, and non-destructive.
 6. Submit a pull request with a clear description of the change.
 
