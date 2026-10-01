@@ -81,6 +81,17 @@ sudo apt install nmap
 
 Open `http://127.0.0.1:5000`.
 
+## ✅ Tests
+
+Install development dependencies and run the automated checks:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+GitHub Actions runs this suite on Python 3.10, 3.11, and 3.12 for pushes and pull requests.
+
 ## 🧪 Quick Demo
 
 Use **LOAD DEMO DATA** in the command center for safe example inputs. See [`DEMO_TEST_DATA.txt`](DEMO_TEST_DATA.txt) for the complete test set.
@@ -97,10 +108,10 @@ See [`SECURITY.md`](SECURITY.md).
 - [x] Finding reports
 - [x] Chakra recovery system
 - [x] Non-repeating quiz system
-- [ ] SQLite-backed assessment history
+- [x] SQLite-backed assessment history
 - [ ] Structured JSON/PDF reporting
 - [ ] Authentication and role-based access
-- [ ] Automated test suite and CI
+- [x] Automated test suite and CI
 - [ ] Expanded defensive analytics
 
 ## 📁 Project Structure

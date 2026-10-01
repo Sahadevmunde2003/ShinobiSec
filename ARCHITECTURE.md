@@ -19,6 +19,9 @@ Flask Application (app.py)
 Findings -> Report Generator -> TXT report
    |
    v
+SQLite assessment history (metadata only)
+   |
+   v
 Chakra System -> Emergency Shinobi Trial -> localStorage question history
 ```
 
@@ -40,3 +43,14 @@ Chakra System -> Emergency Shinobi Trial -> localStorage question history
 | `static/script.js` | Jutsu controls, API calls, reports, chakra and quiz logic |
 | `static/style.css` | Command-center presentation layer |
 | `docs/ShinobiSec_Workflow.md` | Detailed operational flowchart |
+| `tests/test_app.py` | Regression coverage for local-analysis and assessment-history APIs |
+| `.github/workflows/tests.yml` | Python-version matrix CI workflow |
+
+## Assessment history
+
+Successful operations are recorded in a local SQLite database at Flask's instance
+path (`instance/assessments.sqlite3` by default). Each row contains only the
+module name, a target label, finding count, severity totals, and timestamp. Raw
+logs, IOC text, response headers, scan output, and detailed findings are not
+persisted. The dashboard loads the eight most recent entries through
+`GET /api/history`.
